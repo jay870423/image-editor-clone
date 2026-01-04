@@ -1,98 +1,136 @@
-# Nano Banana（image-editor-clone）
+# Image Editor Clone (Nano Banana)
 
-一个基于 Next.js App Router 的「文本驱动图片编辑」Demo：上传一张图片 + 输入自然语言提示词（prompt），由服务端调用 OpenRouter 的多模态模型生成编辑后的图片（以及可选文本说明）。
+一个基于 Next.js App Router 的「文本驱动图片编辑」Demo：上传图片 + 输入自然语言 prompt，由服务端调用 OpenRouter 的多模态模型生成编辑后的图片（以及可选文本说明）。
 
-## 项目目标（设计方案）
+## 功能概览
 
-### 产品定位
-- 面向非专业用户的轻量图片编辑入口：不提供复杂的图层/画笔工具，而是用一句话完成“换背景/加物体/改风格/补全”等编辑需求。
-- 以“1 张输入图 + 1 段 prompt → N 张输出图”为核心闭环，并保留扩展到多图上下文、版本历史、下载分享等能力的空间。
+- Supabase Auth（服务器端认证 / PKCE）：Google、GitHub 登录
+- 登录保护：未登录会被重定向到 `/login`，登录后才能使用编辑与接口
+- 图片生成：`POST /api/generate`（需要登录）
+- 用量统计：每日生成次数配额（默认 3 次/天，可配置）
+  - 查询：`GET /api/usage`
+  - 生成接口会在成功前写入计数（见下方“数据库表”）
 
-### 核心体验流程
-1. 用户上传图片（浏览器本地预览，限制最大 10MB）。
-2. 输入编辑意图 prompt（必填）。
-3. 点击生成：前端以 `multipart/form-data` 提交到 `POST /api/generate`。
-4. 服务端将图片转成 `data:` URL（base64）并调用 OpenRouter 上游模型。
-5. 返回 `images[]`（可能为 `data:` URL 或远端 URL）与 `text`，前端渲染结果列表并展示错误状态。
+## 路由一览
 
-## 功能清单（现状）
-- 上传图片并在页面中预览（前端校验文件大小）。
-- 输入 prompt 触发生成，展示加载状态与错误提示。
-- 展示模型返回的多张图片结果（若为空会提示用户换 prompt）。
-- 服务端透传并解析上游响应：同时支持从 `message.images` 与 `message.content`（含 data URL）提取图片。
+- 页面
+  - `/`：主页面（需要登录）
+  - `/login`：登录页（Google / GitHub）
+- Auth（server routes）
+  - `POST /auth/sign-in`：发起 OAuth（provider=google|github）
+  - `GET /auth/callback`：OAuth 回调（exchange code -> session）
+  - `POST /auth/sign-out`：登出
+- API
+  - `POST /api/generate`：生成图片（需要登录 + 配额检查）
+  - `GET /api/usage`：查询当日配额使用情况（需要登录）
 
-## 技术架构
+## 环境变量
 
-### 前端（`/app`）
-- Next.js App Router 单页入口：`app/page.tsx`（客户端组件）负责上传、prompt 输入、发起请求、渲染结果。
-- UI：shadcn/ui + Radix + Tailwind CSS（Tailwind v4）。
-- 状态：组件内 `useState`（`selectedFile`、`prompt`、`generatedImages`、`isGenerating`、`error` 等）。
-
-### 后端（`/app/api/generate`）
-- 路由：`app/api/generate/route.ts`（`runtime = "nodejs"`）。
-- 入参：`FormData`（`prompt: string`，`image: Blob`）。
-- 处理：将图片转为 base64 的 `data:` URL，调用 OpenRouter `chat/completions` 多模态接口。
-- 出参：`{ images: string[]; text: string }` 或 `{ error: string }`。
-
-### 上游依赖
-- OpenRouter：通过 `OPENROUTER_API_KEY` 调用 `https://openrouter.ai/api/v1/chat/completions`。
-- 默认模型：`google/gemini-2.5-flash-image`（可在 `app/api/generate/route.ts` 中替换）。
-
-## 接口约定
-
-### `POST /api/generate`
-**请求**
-- `Content-Type: multipart/form-data`
-- 字段：
-  - `prompt`：必填
-  - `image`：必填（Blob/File）
-
-**响应**
-- `200 OK`：`{ images: string[]; text: string }`
-- `400`：表单错误（缺 prompt 或 image）
-- `500`：缺少服务端配置（如未设置 `OPENROUTER_API_KEY`）
-- `502`：上游错误/返回不符合预期
-
-## 配置
-
-在根目录创建 `.env.local`（不要提交）：
+复制 `.env.example` 为 `.env.local`，并填写：
 
 ```bash
-OPENROUTER_API_KEY=your_key_here
+# OpenRouter
+OPENROUTER_API_KEY=...
+
+# Quota (可选，默认 3)
+DAILY_GENERATION_LIMIT=3
+
+# Supabase
+NEXT_PUBLIC_SUPABASE_URL=...
+NEXT_PUBLIC_SUPABASE_ANON_KEY=...
 ```
+
+注意：`.env.local` 会被 `.gitignore` 忽略，不要提交。
+
+## Supabase 配置
+
+### 1) 开启 OAuth Providers
+
+在 Supabase Dashboard：
+
+- Auth -> Providers -> Google：启用并填写 Client ID/Secret
+- Auth -> Providers -> GitHub：启用并填写 Client ID/Secret
+
+### 2) 配置 Redirect URLs
+
+在 Supabase Dashboard：
+
+- Auth -> URL Configuration
+  - 添加 `http://localhost:3000/auth/callback`
+  - 生产环境再添加你的正式域名回调，例如 `https://your-domain.com/auth/callback`
+
+### 3) 在 Google / GitHub OAuth 平台配置回调
+
+两者都需要把回调配置指向 Supabase 的统一回调地址：
+
+```text
+https://<your-project-ref>.supabase.co/auth/v1/callback
+```
+
+## 数据库表（用于配额统计）
+
+项目会读写 `generation_usage` 表来实现每日配额。你需要在 Supabase SQL Editor 里创建：
+
+```sql
+create table if not exists public.generation_usage (
+  user_id uuid not null references auth.users(id) on delete cascade,
+  day text not null,
+  count int not null default 0,
+  primary key (user_id, day)
+);
+
+alter table public.generation_usage enable row level security;
+
+create policy "read own usage"
+on public.generation_usage
+for select
+to authenticated
+using (auth.uid() = user_id);
+
+create policy "insert own usage"
+on public.generation_usage
+for insert
+to authenticated
+with check (auth.uid() = user_id);
+
+create policy "update own usage"
+on public.generation_usage
+for update
+to authenticated
+using (auth.uid() = user_id);
+```
+
+说明：
+
+- `day` 使用 UTC 日期键（`YYYY-MM-DD`）。
+- “每日窗口”以用户 `last_sign_in_at`（UTC 时间）为边界按 24 小时滚动计算（实现见 `lib/generation-limit.ts`）。
 
 ## 本地开发
 
-推荐使用 pnpm（仓库包含 `pnpm-lock.yaml`）：
+推荐使用 pnpm（仓库有 `pnpm-lock.yaml`）：
 
 ```bash
-pnpm install
-pnpm dev
+corepack pnpm install
+corepack pnpm dev
 ```
 
 生产构建：
 
 ```bash
-pnpm build
-pnpm start
+corepack pnpm build
+corepack pnpm start
 ```
 
-Windows（PowerShell）提示：如果遇到 `npm.ps1` 执行策略限制，可改用 `cmd /c "npm run build"` 或调整本机 ExecutionPolicy。
+Windows（PowerShell）如果遇到 `npm.ps1` 执行策略限制，可用 `cmd /c "npm run dev"` 作为替代。
 
-## 目录结构
-- `app/`：App Router 页面与接口路由（`app/api/generate`）。
-- `components/`：共享组件（`components/ui/` 为 shadcn/ui）。
-- `hooks/`：通用 hooks。
-- `lib/`：工具函数。
-- `public/`：静态资源。
+## 实现要点
 
-## 风险与约束（设计取舍）
-- 图片以 base64 形式上送：实现简单，但会增加请求体积；后续可改为直传对象存储 + 传 URL。
-- Next 配置当前跳过 TS 校验（`next.config.mjs`）：便于快速迭代，但正式化前建议恢复类型检查。
-- 结果图片来源不一：可能为 `data:` URL 或远端 URL；渲染与下载逻辑需要同时兼容。
+- Supabase SSR 客户端：
+  - `lib/supabase/server.ts`（Server Components / Route Handlers）
+  - `lib/supabase/client.ts`（浏览器侧）
+- 登录保护：
+  - Next.js 16 使用 `proxy.ts` 实现全局保护（类似旧版 `middleware.ts`）
+- 生成接口鉴权与配额：
+  - `app/api/generate/route.ts`
+  - `app/api/usage/route.ts`
 
-## Roadmap（建议）
-- 历史记录：保存 prompt/输入图/输出图版本（本地存储或数据库）。
-- 下载与分享：一键下载生成图、生成分享链接。
-- Prompt 模板：常用编辑意图的预设与参数化。
-- 成本与限流：为 `POST /api/generate` 增加鉴权、速率限制与用量统计。
