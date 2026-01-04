@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
@@ -14,6 +14,24 @@ type HomePageClientProps = {
   userEmail?: string | null
 }
 
+type UsageInfo = {
+  limit: number
+  used: number
+  remaining: number
+  day: string
+  resetsAt: string
+  loginAt: string | null
+}
+
+function formatCountdown(ms: number) {
+  if (!Number.isFinite(ms) || ms <= 0) return "0m"
+  const totalMinutes = Math.ceil(ms / 60000)
+  const hours = Math.floor(totalMinutes / 60)
+  const minutes = totalMinutes % 60
+  if (hours <= 0) return `${minutes}m`
+  return minutes ? `${hours}h ${minutes}m` : `${hours}h`
+}
+
 export default function HomePageClient({ userEmail }: HomePageClientProps) {
   const [selectedImage, setSelectedImage] = useState<string | null>(null)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
@@ -21,7 +39,56 @@ export default function HomePageClient({ userEmail }: HomePageClientProps) {
   const [generatedImages, setGeneratedImages] = useState<string[]>([])
   const [generatedText, setGeneratedText] = useState("")
   const [isGenerating, setIsGenerating] = useState(false)
+  const [isUsageLoading, setIsUsageLoading] = useState(true)
+  const [usage, setUsage] = useState<UsageInfo | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  const refreshUsage = useCallback(async () => {
+    setIsUsageLoading(true)
+    try {
+      const res = await fetch("/api/usage", { method: "GET", credentials: "include" })
+      const data = (await res.json().catch(() => null)) as
+        | { error?: string; details?: string } & Partial<UsageInfo>
+        | null
+
+      if (!res.ok) {
+        if (res.status === 401) {
+          const next = encodeURIComponent(window.location.pathname + window.location.search)
+          window.location.href = `/login?next=${next}`
+          return
+        }
+        throw new Error(data?.error || "Unable to fetch usage")
+      }
+
+      if (
+        typeof data?.limit !== "number" ||
+        typeof data?.used !== "number" ||
+        typeof data?.remaining !== "number" ||
+        typeof data?.day !== "string" ||
+        typeof data?.resetsAt !== "string"
+      ) {
+        throw new Error("Invalid usage response")
+      }
+
+      setUsage({
+        limit: data.limit,
+        used: data.used,
+        remaining: data.remaining,
+        day: data.day,
+        resetsAt: data.resetsAt,
+        loginAt: typeof data.loginAt === "string" ? data.loginAt : null,
+      })
+    } catch (err) {
+      setUsage(null)
+      setError(err instanceof Error ? err.message : "Unable to fetch usage")
+    } finally {
+      setIsUsageLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void refreshUsage()
+  }, [refreshUsage])
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -54,6 +121,10 @@ export default function HomePageClient({ userEmail }: HomePageClientProps) {
       setError("Please enter a prompt")
       return
     }
+    if (usage && usage.remaining <= 0) {
+      setError(`Daily limit reached (${usage.limit} / day).`)
+      return
+    }
 
     setIsGenerating(true)
     setError(null)
@@ -63,24 +134,36 @@ export default function HomePageClient({ userEmail }: HomePageClientProps) {
       formData.append("prompt", prompt)
       formData.append("image", selectedFile)
 
-      const res = await fetch("/api/generate", { method: "POST", body: formData })
+      const res = await fetch("/api/generate", {
+        method: "POST",
+        body: formData,
+        credentials: "include",
+      })
       const data = (await res.json().catch(() => null)) as
-        | { images?: string[]; text?: string; error?: string }
+        | { images?: string[]; text?: string; usage?: UsageInfo; error?: string }
         | null
 
       if (!res.ok) {
+        if (res.status === 401) {
+          const next = encodeURIComponent(window.location.pathname + window.location.search)
+          window.location.href = `/login?next=${next}`
+          return
+        }
         throw new Error(data?.error || "Generation failed")
       }
 
       const images = data?.images ?? []
       setGeneratedImages(images)
       setGeneratedText(data?.text ?? "")
+      if (data?.usage) setUsage(data.usage)
+      else await refreshUsage()
 
       if (!images.length) {
         setError("No image returned by the model. Try a different prompt.")
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Generation failed")
+      await refreshUsage()
     } finally {
       setIsGenerating(false)
     }
@@ -234,7 +317,13 @@ export default function HomePageClient({ userEmail }: HomePageClientProps) {
                 className="w-full"
                 size="lg"
                 onClick={handleGenerate}
-                disabled={isGenerating || !selectedFile || !prompt.trim()}
+                disabled={
+                  isGenerating ||
+                  !selectedFile ||
+                  !prompt.trim() ||
+                  isUsageLoading ||
+                  (usage ? usage.remaining <= 0 : true)
+                }
               >
                 {isGenerating ? (
                   <span className="inline-flex items-center gap-2">
@@ -242,9 +331,36 @@ export default function HomePageClient({ userEmail }: HomePageClientProps) {
                     Generating...
                   </span>
                 ) : (
-                  "Generate Now"
+                  <span className="inline-flex items-center gap-2">
+                    <span>Generate Now</span>
+                    {usage ? (
+                      <span className="text-xs opacity-80">
+                        ({usage.remaining}/{usage.limit} left)
+                      </span>
+                    ) : null}
+                  </span>
                 )}
               </Button>
+              <p className="text-xs text-muted-foreground">
+                {isUsageLoading
+                  ? "Checking daily quota..."
+                  : usage
+                    ? (() => {
+                        const resetsAt = new Date(usage.resetsAt)
+                        const now = new Date()
+                        const isSameDay = resetsAt.toDateString() === now.toDateString()
+                        const dateLabel = isSameDay
+                          ? "today"
+                          : `on ${resetsAt.toLocaleDateString()}`
+                        const timeLabel = resetsAt.toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })
+                        const inLabel = formatCountdown(resetsAt.getTime() - now.getTime())
+                        return `Daily quota (${usage.day}): ${usage.used}/${usage.limit}. Resets ${dateLabel} at ${timeLabel} (in ${inLabel})`
+                      })()
+                    : "Unable to load daily quota."}
+              </p>
               {error ? <p className="text-sm text-destructive">{error}</p> : null}
             </div>
           </Card>

@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
+import {
+  getDailyGenerationLimit,
+  getUserDailyWindow,
+} from "@/lib/generation-limit"
 
 export const runtime = "nodejs"
 
@@ -100,10 +104,69 @@ export async function POST(request: Request) {
   const supabase = await createSupabaseServerClient()
   const {
     data: { user },
+    error: userError,
   } = await supabase.auth.getUser()
 
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  if (userError || !user) {
+    return NextResponse.json(
+      { error: `Supabase auth error: ${userError?.message || "Unauthorized"}` },
+      { status: 401 },
+    )
+  }
+
+  const limit = getDailyGenerationLimit()
+  const loginAt = user.last_sign_in_at ?? null
+  const { day, resetsAt } = getUserDailyWindow(loginAt)
+
+  const { data: usageRow, error: usageReadError } = await supabase
+    .from("generation_usage")
+    .select("count")
+    .eq("user_id", user.id)
+    .eq("day", day)
+    .maybeSingle()
+
+  if (usageReadError) {
+    return NextResponse.json(
+      {
+        error:
+          "Missing database table for usage tracking (expected: generation_usage).",
+        details: usageReadError.message,
+      },
+      { status: 500 },
+    )
+  }
+
+  const used = usageRow?.count ?? 0
+  if (used >= limit) {
+    return NextResponse.json(
+      {
+        error: `Daily limit reached (${limit} / day).`,
+        limit,
+        used,
+        remaining: 0,
+        day,
+        resetsAt,
+        loginAt,
+      },
+      { status: 429 },
+    )
+  }
+
+  const { error: usageWriteError } = usageRow
+    ? await supabase
+        .from("generation_usage")
+        .update({ count: used + 1 })
+        .eq("user_id", user.id)
+        .eq("day", day)
+    : await supabase
+        .from("generation_usage")
+        .insert({ user_id: user.id, day, count: 1 })
+
+  if (usageWriteError) {
+    return NextResponse.json(
+      { error: "Failed to update daily usage counter.", details: usageWriteError.message },
+      { status: 500 },
+    )
   }
 
   const apiKey = process.env.OPENROUTER_API_KEY
@@ -159,11 +222,20 @@ export async function POST(request: Request) {
   const data = (await upstream.json().catch(() => null)) as OpenRouterChatCompletion | null
   if (!upstream.ok) {
     const message = data?.error?.message || `Upstream error (${upstream.status})`
-    return NextResponse.json({ error: message }, { status: 502 })
+    return NextResponse.json(
+      {
+        error: `OpenRouter error (${upstream.status}): ${message}`,
+        upstreamStatus: upstream.status,
+      },
+      { status: 502 },
+    )
   }
   if (!data) return NextResponse.json({ error: "Invalid upstream response" }, { status: 502 })
   if (data.error?.message) {
-    return NextResponse.json({ error: data.error.message }, { status: 502 })
+    return NextResponse.json(
+      { error: `OpenRouter error: ${data.error.message}` },
+      { status: 502 },
+    )
   }
 
   const message = data.choices?.[0]?.message
@@ -178,5 +250,16 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Upstream returned no output" }, { status: 502 })
   }
 
-  return NextResponse.json({ images, text })
+  return NextResponse.json({
+    images,
+    text,
+    usage: {
+      limit,
+      used: used + 1,
+      remaining: Math.max(0, limit - (used + 1)),
+      day,
+      resetsAt,
+      loginAt,
+    },
+  })
 }
