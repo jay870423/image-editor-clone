@@ -102,8 +102,8 @@ using (auth.uid() = user_id);
 
 说明：
 
-- `day` 使用 UTC 日期键（`YYYY-MM-DD`）。
-- “每日窗口”以用户 `last_sign_in_at`（UTC 时间）为边界按 24 小时滚动计算（实现见 `lib/generation-limit.ts`）。
+- `day` 使用“用户本地日期键”（`YYYY-MM-DD`）。客户端会通过请求头 `x-tz-offset-minutes`（`Date#getTimezoneOffset()`）把时区偏移传给服务端，用于按本地日历日统计。
+- 重置时间为用户本地次日 00:00（服务端以该偏移换算为 UTC ISO 时间返回，字段 `resetsAt`）。
 
 ## 本地开发
 
@@ -133,4 +133,3 @@ Windows（PowerShell）如果遇到 `npm.ps1` 执行策略限制，可用 `cmd /
 - 生成接口鉴权与配额：
   - `app/api/generate/route.ts`
   - `app/api/usage/route.ts`
-

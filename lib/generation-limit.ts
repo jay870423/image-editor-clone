@@ -6,47 +6,40 @@ export function getDailyGenerationLimit() {
   return 3
 }
 
-export function getUtcDayKey(date = new Date()) {
-  return date.toISOString().slice(0, 10)
+export function parseTzOffsetMinutes(value: string | null | undefined) {
+  if (!value) return null
+  const parsed = Number.parseInt(value, 10)
+  if (!Number.isFinite(parsed)) return null
+  if (Math.abs(parsed) > 14 * 60) return null
+  return parsed
 }
 
-export function getUtcDayResetsAtIso(date = new Date()) {
-  const nextDayMidnightUtc = new Date(
-    Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() + 1, 0, 0, 0, 0),
-  )
-  return nextDayMidnightUtc.toISOString()
+export function getLocalDayKey(now = new Date(), tzOffsetMinutes: number) {
+  const localMs = now.getTime() - tzOffsetMinutes * 60 * 1000
+  return new Date(localMs).toISOString().slice(0, 10)
 }
 
-export function getUserDailyWindow(loginAtIso: string | null, now = new Date()) {
-  if (!loginAtIso) {
-    const day = getUtcDayKey(now)
-    const resetsAt = getUtcDayResetsAtIso(now)
-    return { day, resetsAt }
-  }
+export function getLocalDayResetsAtIso(now = new Date(), tzOffsetMinutes: number) {
+  const localMs = now.getTime() - tzOffsetMinutes * 60 * 1000
+  const localNow = new Date(localMs)
 
-  const loginAt = new Date(loginAtIso)
-  if (Number.isNaN(loginAt.valueOf())) {
-    const day = getUtcDayKey(now)
-    const resetsAt = getUtcDayResetsAtIso(now)
-    return { day, resetsAt }
-  }
-
-  const boundaryToday = new Date(
-    Date.UTC(
-      now.getUTCFullYear(),
-      now.getUTCMonth(),
-      now.getUTCDate(),
-      loginAt.getUTCHours(),
-      loginAt.getUTCMinutes(),
-      0,
-      0,
-    ),
+  const nextLocalMidnightMs = Date.UTC(
+    localNow.getUTCFullYear(),
+    localNow.getUTCMonth(),
+    localNow.getUTCDate() + 1,
+    0,
+    0,
+    0,
+    0,
   )
 
-  const windowStart = now < boundaryToday
-    ? new Date(boundaryToday.getTime() - 24 * 60 * 60 * 1000)
-    : boundaryToday
+  const resetsAtUtcMs = nextLocalMidnightMs + tzOffsetMinutes * 60 * 1000
+  return new Date(resetsAtUtcMs).toISOString()
+}
 
-  const windowEnd = new Date(windowStart.getTime() + 24 * 60 * 60 * 1000)
-  return { day: getUtcDayKey(windowStart), resetsAt: windowEnd.toISOString() }
+export function getUserDailyWindow(now = new Date(), tzOffsetMinutes: number | null) {
+  const safeOffset = typeof tzOffsetMinutes === "number" ? tzOffsetMinutes : 0
+  const day = getLocalDayKey(now, safeOffset)
+  const resetsAt = getLocalDayResetsAtIso(now, safeOffset)
+  return { day, resetsAt, tzOffsetMinutes: safeOffset }
 }

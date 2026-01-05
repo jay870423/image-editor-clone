@@ -20,6 +20,7 @@ type UsageInfo = {
   remaining: number
   day: string
   resetsAt: string
+  tzOffsetMinutes?: number
   loginAt: string | null
 }
 
@@ -46,7 +47,13 @@ export default function HomePageClient({ userEmail }: HomePageClientProps) {
   const refreshUsage = useCallback(async () => {
     setIsUsageLoading(true)
     try {
-      const res = await fetch("/api/usage", { method: "GET", credentials: "include" })
+      const res = await fetch("/api/usage", {
+        method: "GET",
+        credentials: "include",
+        headers: {
+          "x-tz-offset-minutes": String(new Date().getTimezoneOffset()),
+        },
+      })
       const data = (await res.json().catch(() => null)) as
         | { error?: string; details?: string } & Partial<UsageInfo>
         | null
@@ -138,6 +145,9 @@ export default function HomePageClient({ userEmail }: HomePageClientProps) {
         method: "POST",
         body: formData,
         credentials: "include",
+        headers: {
+          "x-tz-offset-minutes": String(new Date().getTimezoneOffset()),
+        },
       })
       const data = (await res.json().catch(() => null)) as
         | { images?: string[]; text?: string; usage?: UsageInfo; error?: string }

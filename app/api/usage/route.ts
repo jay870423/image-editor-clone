@@ -2,12 +2,13 @@ import { NextResponse } from "next/server"
 import { createSupabaseServerClient } from "@/lib/supabase/server"
 import {
   getDailyGenerationLimit,
+  parseTzOffsetMinutes,
   getUserDailyWindow,
 } from "@/lib/generation-limit"
 
 export const runtime = "nodejs"
 
-export async function GET() {
+export async function GET(request: Request) {
   const supabase = await createSupabaseServerClient()
   const {
     data: { user },
@@ -23,7 +24,11 @@ export async function GET() {
 
   const limit = getDailyGenerationLimit()
   const loginAt = user.last_sign_in_at ?? null
-  const { day, resetsAt } = getUserDailyWindow(loginAt)
+  const tzOffsetMinutes = parseTzOffsetMinutes(
+    request.headers.get("x-tz-offset-minutes"),
+  )
+  const { day, resetsAt, tzOffsetMinutes: usedTzOffsetMinutes } =
+    getUserDailyWindow(new Date(), tzOffsetMinutes)
 
   const { data, error } = await supabase
     .from("generation_usage")
@@ -52,6 +57,7 @@ export async function GET() {
     remaining,
     day,
     resetsAt,
+    tzOffsetMinutes: usedTzOffsetMinutes,
     loginAt,
   })
 }
