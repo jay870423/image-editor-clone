@@ -226,8 +226,7 @@ export default function HomePageClient({ userEmail }: HomePageClientProps) {
           <span>🍌</span>
           <span>The AI model that outperforms Flux Kontext</span>
           <Button variant="link" size="sm" className="p-0 h-auto text-accent-foreground">
-            Try Now →
-          </Button>
+            Try Now �?          </Button>
         </div>
 
         <h1 className="text-5xl md:text-7xl font-bold text-foreground mb-6 text-balance">Nano Banana</h1>
@@ -428,7 +427,7 @@ export default function HomePageClient({ userEmail }: HomePageClientProps) {
       </section>
 
       {/* Features Section */}
-      <section className="bg-muted/30 py-20">
+      <section className="bg-muted/30 py-20" id="features">
         <div className="container mx-auto px-4">
           <div className="text-center mb-12">
             <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-4">Core Features</h2>
@@ -727,3 +726,4 @@ export default function HomePageClient({ userEmail }: HomePageClientProps) {
     </div>
   )
 }
+
