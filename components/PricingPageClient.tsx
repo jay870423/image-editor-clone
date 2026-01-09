@@ -1,4 +1,4 @@
-"use client"
+ï»¿"use client"
 
 import { useMemo, useState } from "react"
 import type { ReactNode } from "react"
@@ -158,10 +158,10 @@ const creditPacks: CreditPack[] = [
 
 const currencyOptions = [
   { value: "USD", label: "$ USD - US Dollar" },
-  { value: "EUR", label: "€ EUR - Euro" },
-  { value: "GBP", label: "¡ê GBP - British Pound" },
-  { value: "CNY", label: "£¤ CNY - Chinese Yuan" },
-  { value: "JPY", label: "£¤ JPY - Japanese Yen" },
+  { value: "EUR", label: "ï¿½ EUR - Euro" },
+  { value: "GBP", label: "ï¿½ï¿½ GBP - British Pound" },
+  { value: "CNY", label: "ï¿½ï¿½ CNY - Chinese Yuan" },
+  { value: "JPY", label: "ï¿½ï¿½ JPY - Japanese Yen" },
 ]
 
 function formatPrice(value: number) {
@@ -613,7 +613,7 @@ function PricingPageClient({ productIds, userEmail }: PricingPageClientProps) {
                   What are credits and how do they work?
                 </AccordionTrigger>
                 <AccordionContent className="text-muted-foreground">
-                  2 credits generate 1 high-quality image. Credits refill at the start of each billing cycle ¡ª monthly
+                  2 credits generate 1 high-quality image. Credits refill at the start of each billing cycle ï¿½ï¿½ monthly
                   for monthly plans, and all at once for yearly plans.
                 </AccordionContent>
               </AccordionItem>

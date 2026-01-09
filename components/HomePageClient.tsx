@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 
 import type React from "react"
 
@@ -226,7 +226,7 @@ export default function HomePageClient({ userEmail }: HomePageClientProps) {
           <span>🍌</span>
           <span>The AI model that outperforms Flux Kontext</span>
           <Button variant="link" size="sm" className="p-0 h-auto text-accent-foreground">
-            Try Now �?          </Button>
+            Try Now �?          </Button>
         </div>
 
         <h1 className="text-5xl md:text-7xl font-bold text-foreground mb-6 text-balance">Nano Banana</h1>
